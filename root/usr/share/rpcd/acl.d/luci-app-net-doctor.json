@@ -1,0 +1,15 @@
+{
+  "luci-app-net-doctor": {
+    "description": "只读网络诊断",
+    "read": {
+      "ubus": {
+        "net.doctor": [
+          "snapshot",
+          "dns",
+          "ping",
+          "https"
+        ]
+      }
+    }
+  }
+}

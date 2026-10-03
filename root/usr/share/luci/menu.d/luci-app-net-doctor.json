@@ -1,0 +1,15 @@
+{
+  "admin/status/net-doctor": {
+    "title": "断网诊断",
+    "order": 90,
+    "action": {
+      "type": "view",
+      "path": "net-doctor/main"
+    },
+    "depends": {
+      "acl": [
+        "luci-app-net-doctor"
+      ]
+    }
+  }
+}

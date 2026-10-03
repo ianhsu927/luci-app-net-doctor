@@ -1,0 +1,77 @@
+#!/bin/sh
+# Each RPC stays below the default rpcd execution timeout.
+PATH=/usr/sbin:/usr/bin:/sbin:/bin
+export PATH
+case "$1" in
+ list) echo '{"snapshot":{},"dns":{},"ping":{},"https":{}}'; exit 0 ;;
+ call) ;;
+ *) exit 1 ;;
+esac
+. /usr/share/libubox/jshn.sh
+json_init
+json_add_string scope '路由器当前 IPv4 出口；不代表所有客户端或指定 USB 出口'
+case "$2" in
+ snapshot)
+  routes=$(ip -4 route show default 2>&1)
+  policy=$(ip -4 rule show 2>&1)
+  target=$(ip -4 route get 1.1.1.1 2>&1)
+  interfaces=$(ubus call network.interface dump 2>&1)
+  proxy=$(uci -q get openclash.config.enable)
+  json_add_string routes "$routes"
+  json_add_string policy "$policy"
+  json_add_string target "$target"
+  json_add_string interfaces "$interfaces"
+  json_add_string proxy_enabled "${proxy:-unknown}"
+  json_add_string status info
+  json_add_string title '接口、地址与路由'
+  json_add_string detail '请结合接口 up、地址和目标路由检查出口；策略路由可能使用其他路由表。'
+ ;;
+ dns)
+  evidence=$(timeout 2 nslookup openwrt.org 2>&1); rc=$?
+  json_add_string title 'DNS 解析'
+  if [ "$rc" = 0 ] && echo "$evidence" | grep -q 'Name:'; then
+   json_add_string status pass
+   json_add_string detail '系统 DNS 已返回测试域名结果。'
+  else
+   json_add_string status warn
+   json_add_string detail '测试域名未在两秒内成功解析；可能是 DNS、出口或测试站点问题。'
+  fi
+  json_add_string evidence "$evidence"
+  json_add_int code "$rc"
+ ;;
+ ping)
+  evidence=$(timeout 3 ping -4 -c 1 -W 2 1.1.1.1 2>&1); rc=$?
+  json_add_string title 'IPv4 连通性'
+  if [ "$rc" = 0 ]; then
+   json_add_string status pass
+   json_add_string detail '测试地址响应 ICMP。'
+  else
+   json_add_string status warn
+   json_add_string detail '测试地址未响应；对方屏蔽 ICMP 也会产生此结果，不能据此判定断网。'
+  fi
+  json_add_string evidence "$evidence"
+  json_add_int code "$rc"
+ ;;
+ https)
+  evidence=$(curl -4 --noproxy '*' --connect-timeout 2 --max-time 3 -sS -o /dev/null -w 'HTTP %{http_code}; remote %{remote_ip}; DNS %{time_namelookup}s; total %{time_total}s' https://openwrt.org/ 2>&1); rc=$?
+  json_add_string title 'HTTPS 访问'
+  if [ "$rc" = 0 ]; then
+   json_add_string status pass
+   json_add_string detail '已完成 TLS 验证并收到 HTTP 响应；不保证其他网站可用。'
+  else
+   json_add_string status warn
+   case "$rc" in
+    6) message='测试域名解析失败。' ;;
+    7) message='无法建立连接，请检查出口、路由和代理规则。' ;;
+    28) message='访问超时，可能涉及出口、代理或测试站点。' ;;
+    60) message='证书验证失败，请检查系统时间与 CA 证书。' ;;
+    *) message='HTTPS 检测失败，请查看错误证据。' ;;
+   esac
+   json_add_string detail "$message"
+  fi
+  json_add_string evidence "$evidence"
+  json_add_int code "$rc"
+ ;;
+ *) json_add_string error 'Unknown method' ;;
+esac
+json_dump
